@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>FarmIntelligence</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #stage {
+    position: relative; width: var(--W); height: var(--H); overflow: hidden; background: #000; color: #fff;
+    font-family: Inter, "Inter Display", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .scene { position: absolute; inset: 0; opacity: 0; }
+  .media { position: absolute; overflow: hidden; background: #000; }
+  .media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .media img.bg { filter: blur(48px) brightness(.45); transform: scale(1.2); }
+  .dim { position: absolute; inset: 0; background:
+         radial-gradient(ellipse at center, rgba(0,0,0,.42) 0%, rgba(0,0,0,.66) 100%); }
+  .txt { position: absolute; left: 0; right: 0; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; text-align: center; box-sizing: border-box; }
+  .line { display: block; font-weight: 600; letter-spacing: -0.028em; line-height: 1.1; opacity: 0;
+          text-wrap: balance; text-shadow: 0 2px 24px rgba(0,0,0,.45), 0 0 2px rgba(0,0,0,.25); }
+  .line + .line { margin-top: .12em; }
+  .line.sub { color: rgba(255,255,255,.86); }
+  .black .line.sub { color: rgba(255,255,255,.62); }
+  .line span { opacity: 0; display: inline-block; white-space: pre; }
+  svg.diagram { position: absolute; overflow: visible; }
+
+  /* 16:9 */
+  .h { --W: 1920px; --H: 1080px; --fs: 96px; --pad: 200px; }
+  .h .media { inset: 0; }
+  .h .txt { top: 0; bottom: 0; padding: 0 var(--pad); }
+  .h .line { max-width: 1500px; }
+  .h .txt.lower { top: 650px; }
+  .h svg.diagram { left: 620px; top: 10px; width: 680px; height: 680px; }
+  /* 9:16 — zdjęcie w kwadracie u góry, tekst pod spodem */
+  .v { --W: 1080px; --H: 1920px; --fs: 92px; --pad: 100px; }
+  .v .media { left: 0; top: 150px; width: 1080px; height: 1080px;
+              -webkit-mask-image: linear-gradient(transparent, #000 9%, #000 86%, transparent);
+              mask-image: linear-gradient(transparent, #000 9%, #000 86%, transparent); }
+  .v .dim { display: none; }
+  .v .txt { top: 1240px; height: 560px; padding: 0 var(--pad); }
+  .v .txt.full { top: 0; height: 1920px; }
+  .v .line { max-width: 880px; }
+  .v svg.diagram { left: 80px; top: 330px; width: 920px; height: 920px; }
+  .big .line { font-size: calc(var(--fs) * 1.12); }
+  .v .big .line { font-size: 88px; }
+  .line { font-size: var(--fs); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+const FMT = new URLSearchParams(location.search).get('fmt') === '9x16' ? 'v' : 'h';
+document.documentElement.className = FMT;
+const stage = document.getElementById('stage');
+stage.className = FMT;
+const FADE = 1.0;               // czas przenikania między scenami [s]
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const eio = x => (x = clamp(x), x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);  // ease-in-out cubic
+const eo  = x => 1 - Math.pow(1 - clamp(x), 3);
+
+/* ---------- STORYBOARD ---------- */
+// d = czas trwania sceny wraz z przenikaniem; z = zoom [od,do]; o = punkt zoomu w % [x,y] (osobno dla 16:9 i 9:16)
+const SCENES = [
+  { id: 1,  d: 4.0, kind: 'black', txt: ['FarmIntelligence'], big: true, tin: .5, tout: 1.4 },
+  { id: 2,  d: 6.5, img: 'field',       txt: ['50 hektarów.', 'Jedna farma.'], z: [1.0, 1.09], o: { h: [50, 50], v: [50, 50] } },
+  { id: 3,  d: 6.5, img: 'drones',      txt: ['Mapują każdy centymetr.'], z: [1.0, 1.10], o: { h: [50, 25], v: [50, 30] } },
+  { id: 4,  d: 6.5, img: 'robot-pole',  txt: ['Ładują się same.'], z: [1.0, 1.10], o: { h: [55, 55], v: [62, 55] } },
+  { id: 5,  d: 7.0, img: 'greenhouses', txt: ['5 szklarni.', 'Klimat i woda pod kontrolą.'], z: [1.0, 1.10], o: { h: [50, 55], v: [50, 55] } },
+  { id: 6,  d: 6.5, img: 'coop',        txt: ['Jajka zjeżdżają same.'], z: [1.0, 1.28], o: { h: [14, 38], v: [14, 38] }, pos: { v: '0% 50%' } },
+  { id: 7,  d: 6.5, img: 'coop',        txt: ['Robot zbiera te z podłogi.'], z: [1.12, 1.45], o: { h: [80, 68], v: [80, 68] }, pos: { v: '100% 50%' } },
+  { id: 8,  d: 10.5, kind: 'diagram' },
+  { id: 9,  d: 6.5, img: 'solar',       txt: ['Słońce zasila roboty i serwerownię.'], z: [1.0, 1.10], o: { h: [45, 40], v: [45, 40] } },
+  { id: 10, d: 7.0, img: 'screen',      txt: ['Zespół agentów układa plan.', 'Ty go zatwierdzasz.'], z: [1.0, 1.10], o: { h: [50, 50], v: [50, 50] } },
+  { id: 11, d: 7.0, img: 'safety',      txt: ['Ktoś wchodzi w strefę?', 'Wszystko staje.'], z: [1.0, 1.12], o: { h: [50, 40], v: [50, 40] }, card: true, freeze: 3.0 },
+  { id: 12, d: 8.5, kind: 'black', txt: ['FarmIntelligence.', 'Farma, która myśli.'], big: true, last: true },
+];
+let acc = 0;
+SCENES.forEach(s => { s.start = acc; acc += s.d - FADE; });
+const TOTAL = SCENES[SCENES.length - 1].start + SCENES[SCENES.length - 1].d;
+window.TOTAL = TOTAL; window.SCENES = SCENES;
+
+/* ---------- DIAGRAM (kury → obornik → biogaz → szklarnia → kury) ---------- */
+const R = 220, NR = 72;
+const polar = (deg, r = R) => [Math.cos(deg * Math.PI / 180) * r, Math.sin(deg * Math.PI / 180) * r];
+const ICONS = [
+  // kura
+  `<path d="M-28,8 C-28,-10 -12,-18 4,-14 L9,-26 C11,-34 22,-34 24,-26 L24,-20 L35,-16 L24,-12 C22,0 18,22 -4,26 C-18,26 -28,20 -28,8 Z"/>
+   <path d="M-28,4 L-40,-8 M-28,10 L-42,6"/><path d="M-3,26 L-3,38 M8,23 L8,38"/><circle cx="17" cy="-23" r="1.6"/>`,
+  // obornik
+  `<path d="M-36,28 C-36,10 -22,2 -9,6 C-6,-8 8,-12 14,-2 C27,-2 36,12 36,28 Z"/>
+   <path d="M-8,-18 c-5,-6 5,-11 0,-18 M10,-20 c-5,-6 5,-11 0,-18"/>`,
+  // biogaz
+  `<path d="M-34,24 L-34,2 A34,30 0 0 1 34,2 L34,24 Z"/><path d="M0,-28 L0,-40 L12,-40"/><path d="M-44,24 L44,24"/><path d="M-34,10 L34,10"/>`,
+  // szklarnia + kiełek
+  `<path d="M-36,26 L-36,-6 L0,-32 L36,-6 L36,26 Z"/><path d="M0,26 L0,6 M0,14 C-12,14 -15,4 -15,4 C-5,2 0,8 0,14 M0,9 C9,9 13,0 13,0 C4,-2 0,3 0,9"/>`,
+];
+const NODE_T = [1.2, 2.5, 3.8, 5.1];    // pojawienie się ikon [s od startu sceny]
+const ARC_T  = [1.9, 3.2, 4.5, 5.8];    // rysowanie strzałek
+function buildDiagram() {
+  let s = `<svg class="diagram" viewBox="-320 -320 640 640" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">`;
+  for (let k = 0; k < 4; k++) {
+    const a = -90 + 90 * k, b = a + 90, g = 25;
+    const [x1, y1] = polar(a + g), [x2, y2] = polar(b - g);
+    const dir = (b - g + 90) * Math.PI / 180, L = 15;
+    const p1 = [x2 - L * Math.cos(dir - .5), y2 - L * Math.sin(dir - .5)], p2 = [x2 - L * Math.cos(dir + .5), y2 - L * Math.sin(dir + .5)];
+    s += `<path class="arc" data-k="${k}" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" stroke-opacity=".9" d="M${x1},${y1} A${R},${R} 0 0 1 ${x2},${y2}"/>`;
+    s += `<path class="head" data-k="${k}" stroke-opacity="0" d="M${p1[0]},${p1[1]} L${x2},${y2} L${p2[0]},${p2[1]}"/>`;
+  }
+  for (let k = 0; k < 4; k++) {
+    const [cx, cy] = polar(-90 + 90 * k);
+    s += `<g class="node" data-k="${k}" transform="translate(${cx},${cy})">
+            <circle r="${NR}" stroke-opacity=".28"/><g class="ico" transform="scale(1.3)">${ICONS[k].replace(/<path /g, '<path pathLength="1" stroke-dasharray="1" ')}</g></g>`;
+  }
+  return s + '</svg>';
+}
+
+/* ---------- DOM ---------- */
+function build(s) {
+  const el = document.createElement('div'); el.className = 'scene'; s.el = el;
+  if (s.img) {
+    const m = document.createElement('div'); m.className = 'media'; s.media = m;
+    if (s.card && FMT === 'h') {      // pionowe zdjęcie w 16:9: rozmyte tło + ostry kadr
+      const bg = new Image(); bg.className = 'bg'; bg.src = `assets/${s.img}.jpg`; m.appendChild(bg);
+      const wrap = document.createElement('div'); wrap.style.cssText = 'position:absolute;top:0;bottom:0;left:50%;width:792px;margin-left:-396px;overflow:hidden';
+      const im = new Image(); im.src = `assets/${s.img}.jpg`; wrap.appendChild(im); m.appendChild(wrap); s.zoomEl = im; s.imgs = [bg, im];
+    } else {
+      const im = new Image(); im.src = `assets/${s.img}.jpg`; m.appendChild(im); s.zoomEl = im; s.imgs = [im];
+    }
+    el.appendChild(m);
+    const dim = document.createElement('div'); dim.className = 'dim'; el.appendChild(dim);
+  }
+  if (s.kind === 'diagram') {
+    const m = document.createElement('div'); m.innerHTML = buildDiagram(); el.appendChild(m.firstChild); s.svg = el.querySelector('svg');
+    s.txt = null;
+  }
+  const t = document.createElement('div'); t.className = 'txt' + (s.big ? ' big' : '') + (s.kind === 'black' ? ' black' : '') + (s.kind === 'black' ? ' full' : '') + (s.kind === 'diagram' ? ' lower' : '');
+  s.lines = [];
+  if (s.kind === 'diagram') {
+    const a = document.createElement('div'); a.className = 'line';
+    ['Kury.', ' Obornik.', ' Biogaz.'].forEach((w, i) => { const sp = document.createElement('span'); sp.textContent = w; a.appendChild(sp); });
+    const b = document.createElement('div'); b.className = 'line sub'; b.textContent = 'Nawóz wraca do szklarni.';
+    a.style.opacity = 1; t.append(a, b); s.words = [...a.children, b];
+    s.wordT = [NODE_T[0], NODE_T[1], NODE_T[2], NODE_T[3]];
+    a.style.fontSize = b.style.fontSize = FMT === 'h' ? '72px' : '66px';
+  } else {
+    s.txt.forEach((tx, i) => {
+      const l = document.createElement('div'); l.className = 'line' + (i ? ' sub' : ''); l.textContent = tx; t.appendChild(l); s.lines.push(l);
+    });
+  }
+  el.appendChild(t); s.t = t;
+  stage.appendChild(el);
+}
+SCENES.forEach(build);
+
+/* ---------- OŚ CZASU ---------- */
+function renderAt(t) {
+  for (const s of SCENES) {
+    const L = t - s.start;
+    if (L < -0.001 || L > s.d + 0.001) { s.el.style.display = 'none'; continue; }
+    s.el.style.display = '';
+    let op = (s.id === 1 ? 1 : eio(L / FADE)) * eio((s.d - L) / FADE);
+    if (s.id === 1) op = 1;
+    s.el.style.opacity = op;
+    // zoom (Ken Burns); w scenie ze „strefą” ruch zatrzymuje się na słowie „staje”
+    if (s.zoomEl) {
+      const [z0, z1] = s.z, [ox, oy] = s.o[FMT];
+      let p;
+      if (s.freeze) p = .75 * eo(Math.min(L, s.freeze) / s.freeze); else p = eio(L / s.d);
+      if (s.pos && s.pos[FMT]) s.zoomEl.style.objectPosition = s.pos[FMT];
+      s.zoomEl.style.transformOrigin = `${ox}% ${oy}%`;
+      s.zoomEl.style.transform = `scale(${z0 + (z1 - z0) * p})`;
+      if (s.imgs.length > 1) s.imgs[0].style.transform = 'scale(1.2)';
+    }
+    // tekst
+    const tin = s.tin ?? .8, tout = s.tout ?? 1.8;
+    const outK = s.last ? 1 : 1 - eio((L - (s.d - tout)) / .8);
+    if (s.lines.length) s.lines.forEach((l, i) => {
+      const e = eio((L - (tin + i * .6)) / 1.0);
+      l.style.opacity = e * outK;
+      l.style.transform = `translateY(${(1 - e) * 16}px)`;
+    });
+    if (s.words) {
+      s.words.forEach((w, i) => { const e = eio((L - s.wordT[i]) / .9); w.style.opacity = e * outK; w.style.transform = `translateY(${(1 - e) * 12}px)`; });
+      s.t.style.opacity = 1;
+    }
+    // diagram
+    if (s.svg) {
+      s.svg.style.opacity = outK;                          // rysunek gaśnie razem z tekstem
+      s.svg.querySelectorAll('.node').forEach(n => {
+        const k = +n.dataset.k, e = eio((L - NODE_T[k]) / .9);
+        n.querySelector('circle').setAttribute('stroke-opacity', .12 + .5 * e);
+        n.querySelector('.ico').style.opacity = e;
+        n.querySelector('.ico').querySelectorAll('path').forEach(p => p.setAttribute('stroke-dashoffset', 1 - eio((L - NODE_T[k]) / 1.1)));
+        n.querySelector('.ico').querySelectorAll('circle').forEach(c => c.setAttribute('stroke-opacity', e));
+      });
+      s.svg.querySelectorAll('.arc').forEach(a => { a.setAttribute('stroke-dashoffset', 1 - eio((L - ARC_T[+a.dataset.k]) / 1.0)); });
+      s.svg.querySelectorAll('.head').forEach(h => h.setAttribute('stroke-opacity', eio((L - ARC_T[+h.dataset.k] - .75) / .4)));
+    }
+  }
+}
+window.renderAt = renderAt;
+window.ready = Promise.all([document.fonts.ready, ...SCENES.flatMap(s => (s.imgs || []).map(i => i.decode()))]);
+renderAt(0);
+</script>
+</body>
+</html>
