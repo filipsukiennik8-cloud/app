@@ -31,8 +31,8 @@ Pliki: `render/scene.html` (storyboard + animacje), `render/render.js` (Playwrig
 
 - **Narzędzie: HTML/CSS/JS + Playwright (Chromium) + ffmpeg.** Cała animacja to jedna funkcja `renderAt(t)`, więc
   każda klatka jest deterministyczna (bez zrywów i zależności od zegara), a tekst renderuje Chromium z fontem Inter —
-  typografia jest ostra i identyczna w obu formatach. Remotion dałby to samo, ale wymaga instalacji zależności z sieci;
-  tu wystarcza to, co jest na maszynie, a oba formaty to ten sam storyboard z innym układem CSS.
+  typografia jest ostra i identyczna w obu formatach. Remotion byłby równorzędną opcją, ale nie był tu zainstalowany;
+  zestaw Playwright + ffmpeg był od razu dostępny, a oba formaty to ten sam storyboard z innym układem CSS.
 - **Przejścia:** dissolve 1,0 s (ease-in-out, sześcienna) + wolny zoom (Ken Burns) w każdej scenie. Tekst wjeżdża
   z lekkim przesunięciem 16 px i gaśnie przed końcem sceny. Linie tekstu wchodzą z opóźnieniem 0,6 s.
 - **Typografia:** Inter 600, tekst wyśrodkowany, pierwsza linia biała, druga nieco ciemniejsza.
